@@ -2,6 +2,7 @@ mod backend;
 mod config;
 mod engine;
 mod kwin_bridge;
+mod overlay;
 mod state;
 
 use anyhow::{anyhow, Result};

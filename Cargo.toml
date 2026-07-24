@@ -7,7 +7,7 @@ authors = ["Kinetix Developers"]
 description = "Zero-installation, transient automatic tiling engine for X11 and Wayland (KWin)"
 
 [dependencies]
-x11rb = { version = "0.13", features = ["allow-unsafe-code", "xkb"] }
+x11rb = { version = "0.13", features = ["allow-unsafe-code", "xkb", "shape"] }
 zbus = { version = "4.0", features = ["tokio"] }
 tokio = { version = "1.38", features = ["full"] }
 clap = { version = "4.5", features = ["derive"] }
