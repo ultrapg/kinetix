@@ -33,7 +33,7 @@ Built in Rust, it injects a transient KWin scripting payload via D-Bus and manag
 ## Building
 
 ```bash
-git clone https://github.com/your-username/kinetix.git
+git clone https://github.com/ultrapg/kinetix.git
 cd kinetix
 cargo build --release
 ```
