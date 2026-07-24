@@ -12,6 +12,8 @@ Built in Rust, it injects a transient KWin scripting payload via D-Bus and manag
 - **Surgical Split & Swap (Drag-and-Drop)**: 
   - Drop a window onto the **center** of another window to **swap** their positions.
   - Drop near the **left, right, top, or bottom edge** of a window to perfectly **split** that tile exactly where you dropped it.
+- **Accidental Drag Cancellation**: Releasing a window back near its starting position (<50px) immediately cancels the drag operation, hiding the overlay and preserving its original tile layout without unexpected reshuffling.
+- **Auto-Collapsing Free Space Engine**: Automatically forces KWin layout re-evaluations whenever tiles are deleted, ensuring zero leftover gaps or abandoned free spaces.
 - **Live Split Previews**: A native Rust Wayland/X11 overlay window dynamically highlights exactly how the tiles will split in real-time as you drag.
 - **Robust 1-Window-Per-Tile Rule**: Kinetix enforces a strict non-overlapping rule, instantly ejecting windows if KWin accidentally stacks them in a single tile.
 - **Minimized / maximized windows are skipped**: Kinetix never forces a minimized or maximized window into the grid.
@@ -103,7 +105,7 @@ The center zone size is controlled by `--swap-zone-ratio` (default `0.4`, meanin
 On startup Kinetix:
 
 1. Connects to `org.kde.KWin` via D-Bus and registers a bridge at `org.kde.kinetix.Bridge`.
-2. Writes a self-contained JavaScript tiling engine (v9.7+) to a temp file and loads it as a transient KWin script.
+2. Writes a self-contained JavaScript tiling engine (v9.9+) to a temp file and loads it as a transient KWin script.
 3. The JS engine tiles all open windows organically, hooks window lifecycle events, and intercepts drag signals.
 4. During drag operations, the JS engine calls back into the Rust daemon via D-Bus to display a high-performance visual overlay.
 
