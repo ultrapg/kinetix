@@ -28,6 +28,24 @@ impl KWinBridge {
         }
     }
 
+    /// Path to a tiny file that remembers the last loaded script ID across crashes/kills.
+    fn id_cache_path(dir: &PathBuf) -> PathBuf {
+        dir.join(".last_script_id")
+    }
+
+    /// Unload a stale script left by a previous (possibly killed) instance.
+    async fn unload_stale(proxy: &KWinScriptingProxy<'_>, dir: &PathBuf) {
+        let cache = Self::id_cache_path(dir);
+        if let Ok(text) = fs::read_to_string(&cache) {
+            let sid = text.trim().to_string();
+            if !sid.is_empty() {
+                let _ = proxy.unload_script(&sid).await;
+                info!("Unloaded stale KWin script ID: {}", sid);
+                let _ = fs::remove_file(&cache);
+            }
+        }
+    }
+
     pub async fn init(&mut self, cfg: &KWinBridgeConfig) -> Result<()> {
         let conn = connection::Connection::session().await?;
         info!("D-Bus session bus connected for KWin bridge script loading.");
@@ -39,6 +57,10 @@ impl KWinBridge {
         if !dir.exists() {
             fs::create_dir_all(&dir)?;
         }
+
+        // Clean up any script left by a previous instance (even if it was killed)
+        Self::unload_stale(&scripting_proxy, &dir).await;
+
         let js_file = dir.join("bridge.js");
 
         // Inject config into the script as a header block
@@ -59,6 +81,9 @@ impl KWinBridge {
 
         let script_id = scripting_proxy.load_script(path_str).await?;
         info!("KWin loaded transient script from {:?} with ID: {}", abs_path, script_id);
+
+        // Persist the script ID so future startups can clean it up
+        let _ = fs::write(Self::id_cache_path(&dir), script_id.to_string());
 
         let script_obj_path = format!("/Scripting/Script{}", script_id);
         let single_script_proxy = KWinSingleScriptProxy::builder(&conn)
@@ -90,6 +115,10 @@ impl KWinBridge {
                 info!("Unloaded KWin transient script ID: {}", id);
             }
         }
+
+        // Remove the ID cache on clean exit
+        let dir = PathBuf::from("./.kinetix");
+        let _ = fs::remove_file(Self::id_cache_path(&dir));
 
         if let Some(path) = &self.temp_script_path {
             if path.exists() {
