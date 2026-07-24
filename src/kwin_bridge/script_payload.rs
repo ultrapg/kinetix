@@ -2,17 +2,12 @@
 // NOTE: The header (KINETIX_MAX_WINDOWS, KINETIX_SWAP_ZONE_RATIO, etc.)
 // is injected by Rust before this payload at load time.
 pub const KWIN_SCRIPT_PAYLOAD: &str = r#"
-// Kinetix Tiling Engine — KWin 6 Script v9.7
-// Fixes Overlapping Windows.
-// 1. Strictly enforces 1 window per tile. If KWin glitches or limits cause 
-//    windows to overlap in a single tile, Kinetix ejects the extra windows 
-//    and forces them into their own tiles.
-// 2. Fallback split checks: if a split direction fails (e.g. tile too narrow), 
-//    it automatically tries the other direction or finds the next best tile.
+// Kinetix Tiling Engine — KWin 6 Script v9.9
+// Accidental Drag Fix: Returns windows to their original tile if dropped near their starting point.
 
 (function() {
     'use strict';
-    print("Kinetix: KWin 6 Tiling Script v9.7 Initialized.");
+    print("Kinetix: KWin 6 Tiling Script v9.9 Initialized.");
 
     var maxWindows    = (typeof KINETIX_MAX_WINDOWS    !== 'undefined') ? KINETIX_MAX_WINDOWS    : 0;
     var swapZoneRatio = (typeof KINETIX_SWAP_ZONE_RATIO !== 'undefined') ? KINETIX_SWAP_ZONE_RATIO : 0.4;
@@ -25,9 +20,6 @@ pub const KWIN_SCRIPT_PAYLOAD: &str = r#"
 
     function anyDragging() { return Object.keys(dragState).length > 0; }
 
-    // =========================================================
-    // Overlay helpers
-    // =========================================================
     function showOverlay(x, y, w, h, screenW, screenH) {
         try {
             callDBus("org.kde.kinetix.Bridge", "/Bridge", "org.kde.kinetix.Bridge",
@@ -41,15 +33,11 @@ pub const KWIN_SCRIPT_PAYLOAD: &str = r#"
         try { callDBus("org.kde.kinetix.Bridge", "/Bridge", "org.kde.kinetix.Bridge", "HideOverlay", "", function() {}); } catch(e) {}
     }
 
-    // =========================================================
-    // Window helpers
-    // =========================================================
     function isTileable(client) {
         if (!client || !client.normalWindow || client.specialWindow || client.dialog || client.fullScreen) return false;
         if (client.minimized || (client.maximizeMode && client.maximizeMode !== 0)) return false;
         var cls = (client.resourceClass || "").toString().toLowerCase();
-        var skip = ["plasmashell","krunner","yakuake","ksmserver","kwin",
-                    "spectacle","kmix","plasma-desktop","plasmoidviewer"];
+        var skip = ["plasmashell","krunner","yakuake","ksmserver","kwin","spectacle","kmix","plasma-desktop","plasmoidviewer"];
         for (var i = 0; i < skip.length; i++) if (cls.indexOf(skip[i]) !== -1) return false;
         return true;
     }
@@ -79,9 +67,6 @@ pub const KWIN_SCRIPT_PAYLOAD: &str = r#"
         return (g.width / Math.max(1, g.height) >= 1.0) ? 1 : 2;
     }
 
-    // =========================================================
-    // Organic BSP Layout
-    // =========================================================
     function applyLayout() {
         if (isDropping || anyDragging()) return;
 
@@ -101,9 +86,10 @@ pub const KWIN_SCRIPT_PAYLOAD: &str = r#"
         }
 
         if (validWins.length === 0 || !rt) return;
+
+        rt.padding = outerGap + 1;
         rt.padding = outerGap;
 
-        // 1. Strict overlap fix: Force 1 window per tile max!
         var allLeaves = getLeafTiles(rt);
         for (var i = 0; i < allLeaves.length; i++) {
             var l = allLeaves[i];
@@ -113,25 +99,27 @@ pub const KWIN_SCRIPT_PAYLOAD: &str = r#"
             }
         }
 
-        // 2. Cleanup empty tiles
-        var cleaned = true, maxLoops = 15;
+        var cleaned = true, maxLoops = 15, didClean = false;
         while (cleaned && maxLoops > 0) {
             cleaned = false; maxLoops--;
             var leaves = getLeafTiles(rt);
             for (var i = 0; i < leaves.length; i++) {
                 if (leaves[i] !== rt && leaves[i].windows.length === 0) {
-                    try { leaves[i].remove(); cleaned = true; } catch(e) {}
+                    try { leaves[i].remove(); cleaned = true; didClean = true; } catch(e) {}
                 }
             }
         }
 
-        // 3. Float catching
+        if (didClean) {
+            rt.padding = outerGap + 2;
+            rt.padding = outerGap;
+        }
+
         var floatingWins = [];
         for (var i = 0; i < validWins.length; i++) {
             if (!validWins[i].tile) floatingWins.push(validWins[i]);
         }
 
-        // 4. Place floating windows
         for (var i = 0; i < floatingWins.length; i++) {
             var w = floatingWins[i];
             var leaves = getLeafTiles(rt);
@@ -139,7 +127,6 @@ pub const KWIN_SCRIPT_PAYLOAD: &str = r#"
                 leaves[0].manage(w); continue;
             }
 
-            // Sort by largest area
             leaves.sort(function(a, b) {
                 var ga = a.absoluteGeometry, gb = b.absoluteGeometry;
                 return (gb.width * gb.height) - (ga.width * ga.height);
@@ -155,7 +142,7 @@ pub const KWIN_SCRIPT_PAYLOAD: &str = r#"
                     target.split(dir);
                     var newLeaves = getLeafTiles(target);
                     if (newLeaves.length < 2) {
-                        target.split(dir === 1 ? 2 : 1); // Try fallback direction
+                        target.split(dir === 1 ? 2 : 1);
                         newLeaves = getLeafTiles(target);
                     }
 
@@ -168,10 +155,8 @@ pub const KWIN_SCRIPT_PAYLOAD: &str = r#"
                     }
                 } catch(e) {}
             }
-            if (!placed) print("Kinetix JS: Tile capacity reached, could not split for window.");
         }
 
-        // 5. Apply inner gaps
         var leaves = getLeafTiles(rt);
         if (innerGap > 0) { for (var i = 0; i < leaves.length; i++) leaves[i].padding = innerGap; }
     }
@@ -186,9 +171,6 @@ pub const KWIN_SCRIPT_PAYLOAD: &str = r#"
         debounceTimer.start();
     }
 
-    // =========================================================
-    // Drag-and-drop
-    // =========================================================
     function computeDropAction(snap, cursorX, cursorY) {
         var relX = (cursorX - snap.x) / Math.max(1, snap.w);
         var relY = (cursorY - snap.y) / Math.max(1, snap.h);
@@ -317,8 +299,15 @@ pub const KWIN_SCRIPT_PAYLOAD: &str = r#"
                     screenW = rg.x + rg.width; screenH = rg.y + rg.height;
                 } catch(e) {}
 
+                var cx = -1, cy = -1;
+                try {
+                    var cur = workspace.cursorPos;
+                    if (cur && typeof cur.x === 'number') { cx = cur.x; cy = cur.y; }
+                } catch(e) {}
+
                 dragState[id] = {
-                    lastX: -1, lastY: -1,
+                    startX: cx, startY: cy,
+                    lastX: cx, lastY: cy,
                     snapshot: snapshot,
                     originalTile: w.tile || null,
                     lastOverlayKey: null,
@@ -337,6 +326,16 @@ pub const KWIN_SCRIPT_PAYLOAD: &str = r#"
 
                 var cx = dragState[id].lastX, cy = dragState[id].lastY;
                 if (cx === -1) return;
+                
+                // If cursor is still near the start, hide overlay (it implies "cancel")
+                var state = dragState[id];
+                var dx = cx - state.startX, dy = cy - state.startY;
+                if (state.startX !== -1 && Math.sqrt(dx*dx + dy*dy) < 50) {
+                    hideOverlay();
+                    dragState[id].lastOverlayKey = "cancel";
+                    return;
+                }
+
                 var snap   = findTargetSnap(dragState[id].snapshot, cx, cy);
                 var action = snap ? computeDropAction(snap, cx, cy) : null;
                 var key    = snap ? (snap.winId + "|" + action) : null;
@@ -365,7 +364,20 @@ pub const KWIN_SCRIPT_PAYLOAD: &str = r#"
                 dropTimer.timeout.connect(function() {
                     isDropping = true;
                     delete dragState[id];
-                    handleDragDrop(w, cursorX, cursorY, state.snapshot, state.originalTile);
+
+                    var dist = 0;
+                    if (state.startX !== -1) {
+                        var dx = cursorX - state.startX, dy = cursorY - state.startY;
+                        dist = Math.sqrt(dx*dx + dy*dy);
+                    }
+
+                    if (dist < 50 && state.originalTile) {
+                        // User dropped it back where it started (accidental drag)
+                        try { state.originalTile.manage(w); } catch(e) {}
+                    } else {
+                        handleDragDrop(w, cursorX, cursorY, state.snapshot, state.originalTile);
+                    }
+                    
                     isDropping = false;
                     scheduleLayout();
                 });
@@ -414,6 +426,6 @@ pub const KWIN_SCRIPT_PAYLOAD: &str = r#"
     initTimer.start();
 
     try { callDBus("org.kde.kinetix.Bridge", "/Bridge", "org.kde.kinetix.Bridge", "ScriptReady", "", function() {}); } catch(e) {}
-    print("Kinetix JS: v9.7 script active.");
+    print("Kinetix JS: v9.9 script active.");
 })();
 "#;
