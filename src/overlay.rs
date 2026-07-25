@@ -25,12 +25,17 @@ use x11rb::{
     rust_connection::RustConnection,
 };
 
-const BORDER_PX: u32 = 5;
+const BORDER_PX: u32 = 2;
 
 // KDE-style accent blue: #3D9AE8
 const COLOR_R: u8 = 0x3D;
 const COLOR_G: u8 = 0x9A;
 const COLOR_B: u8 = 0xE8;
+
+// Red for blocked min-size drops
+const BLOCKED_R: u8 = 0xE8;
+const BLOCKED_G: u8 = 0x3D;
+const BLOCKED_B: u8 = 0x3D;
 
 // ---------------------------------------------------------------
 // Public API
@@ -48,6 +53,7 @@ pub enum OverlayCmd {
         h: u32,
         logical_screen_w: u32,
         logical_screen_h: u32,
+        blocked: bool,
     },
     Hide,
 }
@@ -72,8 +78,8 @@ impl OverlayManager {
         Self { tx }
     }
 
-    pub fn show(&self, x: i32, y: i32, w: u32, h: u32, logical_screen_w: u32, logical_screen_h: u32) {
-        let _ = self.tx.try_send(OverlayCmd::Show { x, y, w, h, logical_screen_w, logical_screen_h });
+    pub fn show(&self, x: i32, y: i32, w: u32, h: u32, logical_screen_w: u32, logical_screen_h: u32, blocked: bool) {
+        let _ = self.tx.try_send(OverlayCmd::Show { x, y, w, h, logical_screen_w, logical_screen_h, blocked });
     }
 
     pub fn hide(&self) {
@@ -93,7 +99,9 @@ fn overlay_thread(rx: mpsc::Receiver<OverlayCmd>) -> Result<()> {
     let phys_w = screen.width_in_pixels  as f64;  // X11 physical pixels
     let phys_h = screen.height_in_pixels as f64;
 
-    let pixel = compute_pixel(&screen, COLOR_R, COLOR_G, COLOR_B);
+    let normal_pixel = compute_pixel(&screen, COLOR_R, COLOR_G, COLOR_B);
+    let blocked_pixel = compute_pixel(&screen, BLOCKED_R, BLOCKED_G, BLOCKED_B);
+    let mut current_pixel = normal_pixel;
 
     let win = conn.generate_id()?;
     let gc  = conn.generate_id()?;
@@ -108,8 +116,8 @@ fn overlay_thread(rx: mpsc::Receiver<OverlayCmd>) -> Result<()> {
         screen.root_visual,
         &CreateWindowAux::new()
             .override_redirect(1u32)
-            .background_pixel(pixel)
-            .border_pixel(pixel)
+            .background_pixel(current_pixel)
+            .border_pixel(current_pixel)
             .event_mask(EventMask::EXPOSURE),
     )?;
 
@@ -117,7 +125,7 @@ fn overlay_thread(rx: mpsc::Receiver<OverlayCmd>) -> Result<()> {
     conn.shape_rectangles(SO::SET, SK::INPUT, ClipOrdering::UNSORTED, win, 0, 0, &[])?;
 
     conn.create_gc(gc, win, &CreateGCAux::new()
-        .foreground(pixel).background(pixel))?;
+        .foreground(current_pixel).background(current_pixel))?;
 
     conn.flush()?;
 
@@ -141,7 +149,14 @@ fn overlay_thread(rx: mpsc::Receiver<OverlayCmd>) -> Result<()> {
 
         if let Some(cmd) = last {
             match cmd {
-                OverlayCmd::Show { x, y, w, h, logical_screen_w, logical_screen_h } => {
+                OverlayCmd::Show { x, y, w, h, logical_screen_w, logical_screen_h, blocked } => {
+                    let new_pixel = if blocked { blocked_pixel } else { normal_pixel };
+                    if new_pixel != current_pixel {
+                        current_pixel = new_pixel;
+                        let _ = conn.change_window_attributes(win, &ChangeWindowAttributesAux::new().background_pixel(current_pixel).border_pixel(current_pixel));
+                        let _ = conn.change_gc(gc, &ChangeGCAux::new().foreground(current_pixel).background(current_pixel));
+                    }
+
                     // Compute scale: logical → physical pixel conversion.
                     let sx = if logical_screen_w > 0 { phys_w / logical_screen_w as f64 } else { 1.0 };
                     let sy = if logical_screen_h > 0 { phys_h / logical_screen_h as f64 } else { 1.0 };

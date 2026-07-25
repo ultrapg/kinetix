@@ -42,7 +42,8 @@ impl KinetixBridgeServer {
             let h  = v["h"].as_i64().unwrap_or(100).max(1) as u32;
             let sw = v["screenW"].as_u64().unwrap_or(0) as u32;
             let sh = v["screenH"].as_u64().unwrap_or(0) as u32;
-            self.overlay.show(x, y, w, h, sw, sh);
+            let blocked = v["blocked"].as_bool().unwrap_or(false);
+            self.overlay.show(x, y, w, h, sw, sh, blocked);
         }
     }
 
