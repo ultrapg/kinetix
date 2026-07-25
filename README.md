@@ -12,13 +12,16 @@ Built in Rust, it injects a transient KWin scripting payload via D-Bus and manag
 - **Surgical Split & Swap (Drag-and-Drop)**: 
   - Drop a window onto the **center** of another window to **swap** their positions.
   - Drop near the **left, right, top, or bottom edge** of a window to perfectly **split** that tile exactly where you dropped it.
+- **Minimum Size Constraints & Red Warning Overlays**: Prevents window splits from violating window `minSize` limits. If splitting a tile would force either window below its minimum dimensions, the overlay border dynamically turns **red** (`#E83D3D`) and safely falls back to a swap action.
+- **Empty Area & Non-Window Drop Targets**: Empty spaces and unoccupied tiles created by closing or dragging windows are tracked as valid drop targets with clean, full-rectangle border previews.
+- **Popup & Transient Window Exclusions**: Popups, context menus, file pickers, dropdowns, splash screens, tooltips, notifications, utility windows, and fixed-size non-resizable windows are reliably ignored using KWin's `skipTaskbar` heuristic and window flags.
 - **Accidental Drag Cancellation**: Releasing a window back near its starting position (<50px) immediately cancels the drag operation, hiding the overlay and preserving its original tile layout without unexpected reshuffling.
 - **Auto-Collapsing Free Space Engine**: Automatically forces KWin layout re-evaluations whenever tiles are deleted, ensuring zero leftover gaps or abandoned free spaces.
-- **Live Split Previews**: A native Rust Wayland/X11 overlay window dynamically highlights exactly how the tiles will split in real-time as you drag.
+- **Live Split Previews**: A native Rust X11/Wayland overlay window dynamically highlights split geometries in real-time as you drag.
 - **Robust 1-Window-Per-Tile Rule**: Kinetix enforces a strict non-overlapping rule, instantly ejecting windows if KWin accidentally stacks them in a single tile.
-- **Minimized / maximized windows are skipped**: Kinetix never forces a minimized or maximized window into the grid.
-- **Single binary**: No runtime dependencies beyond a D-Bus session and KDE Plasma 6.
-- **Configurable**: gaps, window cap, swap zone size, and more.
+- **Minimized / Maximized Windows Skipped**: Kinetix never forces a minimized or maximized window into the grid.
+- **Single Binary**: No runtime dependencies beyond a D-Bus session and KDE Plasma 6.
+- **Configurable**: Gaps, window cap, swap zone size, and more.
 
 ---
 
@@ -33,7 +36,7 @@ Built in Rust, it injects a transient KWin scripting payload via D-Bus and manag
 ## Building
 
 ```bash
-git clone https://github.com/ultrapg/kinetix.git
+git clone https://github.com/your-username/kinetix.git
 cd kinetix
 cargo build --release
 ```
@@ -105,7 +108,7 @@ The center zone size is controlled by `--swap-zone-ratio` (default `0.4`, meanin
 On startup Kinetix:
 
 1. Connects to `org.kde.KWin` via D-Bus and registers a bridge at `org.kde.kinetix.Bridge`.
-2. Writes a self-contained JavaScript tiling engine (v9.9+) to a temp file and loads it as a transient KWin script.
+2. Writes a self-contained JavaScript tiling engine (v10.8+) to a temp file and loads it as a transient KWin script.
 3. The JS engine tiles all open windows organically, hooks window lifecycle events, and intercepts drag signals.
 4. During drag operations, the JS engine calls back into the Rust daemon via D-Bus to display a high-performance visual overlay.
 
